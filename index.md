@@ -6,7 +6,7 @@ Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://j
 
 ### HOMEWORKS
 ## Homework 1
-1. [Rmd file](ttps://github.com/BU-IE-582/fall-24-eylulgulluu/blob/main/2021402255.Rmd)
+1. [Rmd file](https://github.com/BU-IE-582/fall-24-eylulgulluu/blob/main/2021402255.Rmd)
 
 2. [HTML file](https://github.com/BU-IE-582/fall-24-eylulgulluu/blob/main/2021402255.nb.html)
 
