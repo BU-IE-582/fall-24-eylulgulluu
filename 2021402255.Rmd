@@ -1,0 +1,328 @@
+---
+title: "IE582 HOMEWORK 1"
+subtitle: "Eylül Güllü / 2021402255"
+output: html_notebook
+---
+
+**INTRODUCTION**
+This project focuses on modeling high frequency communication systems, especially 5G antenna design. The aim of the project is to understand and predict the relationship between S11 (return loss) parameters, which determine the performance of the antenna, and the antenna geometry. The given data sets consist of 385 antenna designs simulated according to 11 design parameters and each design consists of measurements at 201 different frequency values. Using this data, the effects of design parameters on antenna performance will be analyzed by dimensionality reduction (PCA) and regression modeling methods.
+
+
+**Data Preparation:** First, I defined the necessary libraries and loaded the given data sets. Before starting the modeling, I checked if there were any missing values in the data sets and if the data numbers were consistent with each other. As we can see from the outputs, there are no problems in our data that would prevent us from performing analysis.
+
+```{r}
+#Libraries
+library(tidyverse)
+library(naniar)
+library(ggcorrplot)
+library(caret) 
+
+#Data Sets Upload
+setwd("/Users/eylulruyagullu/Desktop/BOUN'4/IE582/hw1_files")
+input_data <- read.csv("hw1_input.csv", header = TRUE)
+real_data <- read.csv("hw1_real.csv", header = TRUE)
+img_data <- read.csv("hw1_img.csv", header = TRUE)
+
+#Missing Data Control
+cat("Input Data Missing Values:", sum(is.na(input_data)), "\n")
+cat("Real Part Data Missing Values:", sum(is.na(real_data)), "\n")
+cat("Imaginary Part Data Missing Values:", sum(is.na(img_data)), "\n")
+
+#Number of Rows Control
+cat("Input Data Row Count:", nrow(input_data), "\n")
+cat("Real Part Data Row Count:", nrow(real_data), "\n")
+cat("Imaginary Part Data Row Count:", nrow(img_data), "\n")
+
+```
+
+**Frequency Selection:** As we can see in the S11 output files, measurements were made according to the given parameters at 201 different frequency points in the 23-33 GHz range. Since establishing 201 separate models (or covering the characteristics of 201 frequency values) and multitarget linear regression are outside the scope of our course, I will establish linear regression models for certain selected frequency values and analyze their performances. Since a small S11 value is an indicator that the system performs better, I selected these critical frequency values according to the size of the S11 values. We have two output files: real and imaginary. These two parts show the values affected by different variables, but while commenting on the size of the general S11 value, I proceeded by finding the euclidean distance between these two points. Then, I found the variance of these distances, which I defined as s11_magnitude for the columns corresponding to each frequency value. To enhance the model construction process, I shifted the focus to identifying frequency values where the variance in S11 values is highest. This is based on the assumption that frequencies with higher variance indicate that the corresponding input features have a more significant influence on the S11 output. By selecting these frequencies, the model will better account for the input parameters that most affect the S11 values.
+
+**Selected frequences: 26.70 26.75 26.65 26.80**
+
+```{r}
+frequencies <- seq(23, 33, length.out = ncol(real_data))
+
+s11_magnitude <- sqrt(real_data^2 + img_data^2)
+column_variances <- apply(s11_magnitude, 2, var)
+selected_indices <- order(column_variances, decreasing = TRUE)[1:4]  
+selected_frequencies <- frequencies[selected_indices]
+
+real_selected <- real_data[, selected_indices]
+img_selected <- img_data[, selected_indices]
+
+selected_frequencies
+
+plot(frequencies, column_variances, type = "l", col = "blue", 
+     xlab = "Frequency (GHz)", ylab = "Variance |S11|", main = "Variance S11 Magnitude")
+points(selected_frequencies, column_variances[selected_indices], col = "red", pch = 19)
+
+```
+
+**Correlation Analysis:**
+It would be useful to use the intervals between our predictors before building the model. When we examine the correlation matrix, we see that there is approximately 92% agreement between the patch width and substrate height variables. This change can create multicollinearity in our model by screening one of these variables or by combining the interaction term to try to reduce a single variable.
+
+We also see a greater than 40% appearance between the dielectric constant of the substrate and the patch width and substrate height variables. Another relationship we need to consider in model building. 
+
+```{r}
+correlation_matrix <- cor(input_data)  
+print(correlation_matrix)
+
+
+ggcorrplot(correlation_matrix, 
+           method = "circle", 
+           type = "lower", 
+           lab = TRUE, 
+           lab_size = 3, 
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix of Decision Variables")
+
+```
+
+**Output Distinction:** Models will be created for the 4 different frequency values selected, but another issue is whether separate or joint models will be created for the real and imaginary parts. When we fit two separate linear models to the real and imaginary outputs for our first frequency value of 26.7, we see that the significantly affecting parameters do not match exactly. This is also due to the structure of the S11 parameter. The real part reflects the resistance or real impedance of the antenna whereas the imaginary part represents the reactance or the phase difference between the incident and reflected waves. For this reason, we will proceed by producing separate models for the real and imaginary parts in the rest of the report.
+Here, we also see with R-squared the possibility that linear regression for the imaginary part may not produce very significant results.
+
+```{r}
+real_model_26_7 <- lm(real_selected[,1] ~ ., data = input_data)
+summary(real_model_26_7)
+
+img_model_26_7 <- lm(img_selected[,1] ~ ., data = input_data)
+summary(img_model_26_7)
+```
+
+**Model Preparation for Real Outputs:**
+I had separate linear models fitted for the real part outputs of the four frequency values I selected. Due to the fact that these frequency values were close to each other in the graph, we saw that these four models were more affected by similar parameters as expected. In the rest of the report, I will develop the model for the first frequency, 26.70, and then calculate the mean square errors of the established model for the data at the four frequency values and look at its overall performance.
+
+```{r}
+real_model_26_7 <- lm(real_selected[,1] ~ ., data = input_data)
+summary(real_model_26_7)
+
+real_model_26_75 <- lm(real_selected[,2] ~ ., data = input_data)
+summary(real_model_26_75)
+
+real_model_26_8 <- lm(real_selected[,3] ~ ., data = input_data)
+summary(real_model_26_8)
+
+real_model_26_85 <- lm(real_selected[,4] ~ ., data = input_data)
+summary(real_model_26_8)
+```
+
+**Defining Error Metrics: ** Although MSE is a powerful indicator on its own, it is also important to check different error parameters, so the summary statistics section is prepared to be called later.
+
+```{r}
+summary_statistics <- function(actual_values, predicted_values) {
+  mse <- mean((predicted_values - actual_values)^2)
+  rmse <- sqrt(mse)
+  mae <- mean(abs(predicted_values - actual_values))
+  r2 <- 1 - sum((predicted_values - actual_values)^2) / sum((actual_values - mean(actual_values))^2)
+  return(c(MSE = mse, RMSE = rmse, MAE = mae, R2 = r2))
+}
+```
+
+
+**Model Performance Analysis & Selection for Real Output:** To create our model, we start by creating training and test sets. Here, the training set takes 70% of the data and the test set takes 30% of the data. First, I ran the model without reducing any parameters and without establishing a nonlinear relationship. We have an MSE of 0.091 and an R-squared value of 0.789. Although we can capture certain parts in the model, we cannot capture this relationship in the midpoints we see in the graph. Also, when we examine the summary table, we see that we cannot capture a significance for most variables. The striking value is found for the height.of.substrate variable. We will create a second model by taking into account the correlations we calculated before and try to make an adjustment for the inputs with high correlations.
+
+```{r}
+
+set.seed(123)  
+n <- nrow(input_data)
+train_index <- sample(1:n, size = 0.7 * n)
+train_data <- input_data[train_index, ]
+test_data <- input_data[-train_index, ]
+
+cat("Size of Training Set: ", nrow(train_data), "\n")
+cat("Size of Test Set: ", nrow(test_data), "\n")
+
+real_model <- lm(real_selected[train_index, 1] ~ ., data = train_data)  
+predictions <- predict(real_model, newdata = test_data)
+actual_values <- real_selected[-train_index, 1]
+
+plot(actual_values, predictions, main = "Actual vs Predicted", xlab = "Actual Values", ylab = "Predicted Values", col = "blue")
+abline(0, 1, col = "red")  # Y=x line (ideal scenario)
+
+summary_statistics(actual_values, predictions)
+summary(real_model)
+
+```
+
+**Model Performance Analysis & Selection for Updated Version:** I multiplied the three variables that we observed to be highly correlated and added them to the model as a single variable. This way, we obtained both a smaller MSE of 0.07 and an R-squared value of 0.83. Other modifications to the model were tried but no better results were achieved.
+
+```{r}
+calculate_mse <- function(actual, predicted) {
+  mean((actual - predicted)^2)}
+mse_values <- numeric(4)
+
+real_model_1_v2 <- lm(real_selected[train_index, 1] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(real_model_1_v2, newdata = test_data)
+
+actual_values <- real_selected[-train_index, 1]
+
+plot(actual_values, predictions, main = "Actual vs Predicted", xlab = "Actual Values", ylab = "Predicted Values", col = "blue")
+abline(0, 1, col = "red") 
+
+summary_statistics(actual_values, predictions)
+summary(real_model_1_v2)
+mse_values[1] <- calculate_mse(actual_values, predictions)
+```
+
+**MSE Calculation for 4 Different Frequency Points:** Now we tested the model we established at 4 different frequencies and calculated the average MSE. As we can see in the output tables, the model we established according to the first frequency value showed similar performance at these frequency values.
+
+```{r}
+#Frequency 2:
+real_model_1_v2 <- lm(real_selected[train_index, 2] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(real_model_1_v2, newdata = test_data)
+actual_values <- real_selected[-train_index, 2]
+
+summary_statistics(actual_values, predictions)
+summary(real_model_1_v2)
+mse_values[2] <- calculate_mse(actual_values, predictions)
+
+
+#Frequency 3:
+real_model_1_v2 <- lm(real_selected[train_index, 3] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(real_model_1_v2, newdata = test_data)
+actual_values <- real_selected[-train_index, 3]
+
+summary_statistics(actual_values, predictions)
+summary(real_model_1_v2)
+mse_values[3] <- calculate_mse(actual_values, predictions)
+
+#Frequency 4:
+real_model_1_v2 <- lm(real_selected[train_index, 4] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(real_model_1_v2, newdata = test_data)
+actual_values <- real_selected[-train_index, 4]
+
+summary_statistics(actual_values, predictions)
+summary(real_model_1_v2)
+mse_values[4] <- calculate_mse(actual_values, predictions)
+
+average_mse <- mean(mse_values)
+cat("Average MSE for all models:", average_mse, "\n")
+
+```
+**Model Selection for Imaginary Outputs: ** We will follow a path very similar to the one we followed in the Real part. Again, we will develop a model for our first frequency value and check if we have developed a model that includes other frequency values. Below, we are initially setting up our model with all inputs.
+
+```{r}
+img_model <- lm(img_selected[train_index, 1] ~ ., data = train_data)  
+predictions <- predict(img_model, newdata = test_data)
+actual_values <- img_selected[-train_index, 1]
+
+plot(actual_values, predictions, main = "Actual vs Predicted", xlab = "Actual Values", ylab = "Predicted Values", col = "blue")
+abline(0, 1, col = "red")  # Y=x line (ideal scenario)
+
+summary_statistics(actual_values, predictions)
+summary(img_model)
+```
+**Model Preparing for Imaginary Part Updated:** In our updated model we removed the predictors without significance. Nonlinear relationships between predictors have been tried but none of them brought better MSE than this model. Thus this is our selected model for imaginary part with 0.095 MSE.
+
+```{r}
+mse_values_2 <- numeric(4)
+img_model_v2 <- lm(img_selected[train_index, 1] ~ height.of.substrate + width.of.patch +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(img_model_v2, newdata = test_data)
+actual_values <- img_selected[-train_index, 1]
+
+plot(actual_values, predictions, main = "Actual vs Predicted", xlab = "Actual Values", ylab = "Predicted Values", col = "blue")
+abline(0, 1, col = "red")  # Y=x line (ideal scenario)
+
+summary_statistics(actual_values, predictions)
+summary(img_model_v2)
+mse_values_2[1] <- calculate_mse(actual_values, predictions)
+```
+I checked the imaginary parts updated model on 3 other frequencies and end up with 0.095 MSE. Even though our adjusted R-squared value is low, the focus on this part is on MSE so this is the final model for imaginary part.
+
+```{r}
+#Frequency 2:
+img_model_v2 <- lm(real_selected[train_index, 2] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(img_model_v2, newdata = test_data)
+actual_values <- real_selected[-train_index, 2]
+
+summary_statistics(actual_values, predictions)
+summary(img_model_v2)
+mse_values_2[2] <- calculate_mse(actual_values, predictions)
+
+
+#Frequency 3:
+img_model_v2 <- lm(real_selected[train_index, 3] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(img_model_v2, newdata = test_data)
+actual_values <- real_selected[-train_index, 3]
+
+summary_statistics(actual_values, predictions)
+summary(img_model_v2)
+mse_values_2[3] <- calculate_mse(actual_values, predictions)
+
+#Frequency 4:
+img_model_v2 <- lm(real_selected[train_index, 4] ~ height.of.substrate * width.of.patch * dielectric.constant.of.substrate +
+                                 radius.of.the.probe + c_probe, data = train_data)  
+predictions <- predict(img_model_v2, newdata = test_data)
+actual_values <- real_selected[-train_index, 4]
+
+summary_statistics(actual_values, predictions)
+summary(img_model_v2)
+mse_values_2[4] <- calculate_mse(actual_values, predictions)
+
+average_mse <- mean(mse_values)
+cat("Average MSE for all models:", average_mse, "\n")
+```
+
+**PCA:** For PC1, the most important variables are width.of.patch and height.of.substrate, with very similar contributions.
+PC2 is dominated by c_probe and c_antipad, followed by the dielectric.constant.of.solder.resist.layer.
+PC3 emphasizes height.of.patch and radius.of.the.probe, with length.of.patch also contributing significantly.
+PC4 highlights height.of.solder.resist.layer and radius.of.the.probe, with height.of.patch and length.of.patch contributing moderately.
+
+```{r}
+input_data_scaled <- scale(input_data)
+pca_model <- prcomp(input_data_scaled, center = TRUE, scale. = TRUE)
+summary(pca_model)
+
+pca_df <- as.data.frame(pca_model$x)
+pca_loadings <- pca_model$rotation
+
+top_features <- list()
+for (i in 1:4) {
+  top_features[[paste0("PC", i)]] <- head(sort(abs(pca_loadings[, i]), decreasing = TRUE), 5)
+}
+
+print(top_features)
+
+variances <- pca_model$sdev^2
+
+variances_explained <- variances / sum(variances)
+
+cat("Explained Variance for the First 4 Components:\n")
+explained_variance <- data.frame(
+  Component = paste0("PC", 1:4),
+  Variance_Explained = variances_explained[1:4],
+  Cumulative_Variance = cumsum(variances_explained)[1:4]
+)
+explained_variance
+
+num_components <- which(cumsum_variances_explained >= 0.5)[1]
+cat("Number of Selected Components: ", num_components, "\n")
+
+```
+**Regression Modeling for S11:** Linear regression models have shown varying success in predicting the real and imaginary components of S11 based on the geometric parameters of the antenna design. The model we created for the real component shows a very high accuracy with the R-squared value calculated as 76.13%. The error metrics of this model also provided very good results. MSE (Mean Squared Error) was determined as 0.0953, RMSE (Root Mean Squared Error) as 0.3087, and MAE (Mean Absolute Error) as 0.2088. In addition, the R2 value was 0.7613, meaning that the model can predict with 76% accuracy. This result shows that the model is successful and the design parameters have a strong effect on the real component of S11.
+
+However, the model we created for the imaginary component showed lower accuracy. The R-squared value remained at only 10.79%, which reveals how weak the model is in predicting the imaginary component. The error metrics calculated for the imaginary component are: MSE 0.0957, RMSE 0.3094, and MAE 0.2414. The R2 value was found to be only 0.1079. This situation shows that the imaginary component requires more complex relationships and the model cannot learn such relationships effectively enough.
+
+In general, it can be said that the real component model is more successful with higher accuracy and lower error metrics. The low accuracy in the imaginary component model indicates that more advanced analyses or more in-depth examination of parameter interactions are required. Therefore, more sophisticated models or analyses that take into account the interactions of parameters can provide better results for predicting the imaginary component.
+
+
+**DIMENSIONALITY REDUXTION WITH PCA: ** PC1 (First Component): The parameters with high loading in this component are geometric parameters such as "width.of.patch", "height.of.substrate", "dielectric.constant.of.substrate" (substrate dielectric constant). This shows that geometric shapes (especially patch dimensions and substrate properties) have a significant effect on electromagnetic behavior. It is understood that patch dimensions and substrate properties can affect the propagation of the electromagnetic field and how energy is transmitted.
+
+PC2 (Second Component): In this component, parameters such as "c_probe" (probe capacity), "c_antipad" (antipad capacity), "dielectric.constant.of.solder.resist.layer" (solder mask dielectric constant) come to the fore. This suggests that the dielectric properties of structural elements such as probe and antipad and the locations of these elements are strongly related to the electromagnetic behavior. In particular, the dielectric constant can affect the electrical conductivity and field distribution associated with such structures.
+
+PC3 and PC4 (Third and Fourth Components): These components are mostly related to parameters such as "height.of.patch", "length.of.patch", "radius.of.the.probe". It shows that geometric dimensions reflect the effects of probe and patch designs in particular on the propagation of the electromagnetic field. These parameters may include small-scale variables that are effective at high frequencies and change the electromagnetic behavior.
+
+According to the results provided by PCA, geometric parameters (e.g. patch dimensions, substrate properties) seem to be one of the most important factors shaping the electromagnetic behavior. Especially parameters such as patch width, length and height can have a direct effect on the propagation and transmission of the electromagnetic field. Such parameters can affect critical properties such as antenna efficiency, signal transmission and resonant frequencies.
+
+Trying to determine the parameters affecting the S11 response of the antenna using PCA (Principal Component Analysis) can be an important method in terms of simplifying the design space, but in our case this method was not as effective as expected. Because, while 8 main components were needed to explain 80% of the variance, this created too much complexity in the design. This situation shows that PCA does not simplify the design process in every case. For a better solution, we focused on four main components that would explain only 50% of the variance. Although this provided a simpler model, it can be said that PCA has a limited effect in this specific case.
+
+As a result, although PCA is useful in understanding the effect of the design parameters, it may not be effective in reducing complexity in every case. Instead, it may be necessary to improve the design process with different modeling or analysis methods.
+
+*For the syntax of R codes, the codes in the course and GenAI tools were referenced.*
