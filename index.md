@@ -6,11 +6,13 @@ Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://j
 
 ### HOMEWORKS
 ## Homework 1
-1. [Rmd file](Files/2021402255.Rmd)
+1. [Report Rmd](Files/2021402255.Rmd)
 
-2. [HTML file](https://github.com/BU-IE-582/fall-24-eylulgulluu/blob/main/2021402255.nb.html)
+2. [Report HTML](Files/2021402255.nb.html)
 
-3. [Codes](https://github.com/BU-IE-582/fall-24-eylulgulluu/blob/main/2021402255-Codes.Rmd)
+3. [Codes Rmd](Files/2021402255-Codes.Rmd)
+
+4. [Codes HTML](Files/2021402255-Codes.nb.html)
 
 ### Markdown
 
