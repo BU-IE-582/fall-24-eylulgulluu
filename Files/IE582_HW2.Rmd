@@ -26,10 +26,6 @@ ncol(match_data)
 ```
 
 ```{r}
-summary(match_data)
-```
-
-```{r}
 for (col in colnames(match_data)) {
     print(col)
 }
@@ -189,7 +185,7 @@ coeffs_1st_half_actual <- lm(probability_of_draw ~ poly(bin_centers, 2), data = 
 predicted_probabilities <- predict(coeffs_1st_half_actual, newdata = actual_probabilities_first)
 
 ggplot(first_half, aes(x = P_home_minus_P_away, y = P_draw)) +
-  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker olasılıkları
+  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker probabilities
   geom_line(aes(x = P_home_minus_P_away, y = predicted_draw), color = "red", size = 1) +  # Bookmaker Trend Line
   geom_point(data = actual_probabilities_first, aes(x = bin_centers, y = probability_of_draw), color = "green", size = 3) +  
   geom_line(data = actual_probabilities_first, aes(x = bin_centers, y = predicted_probabilities), color = "orange", size = 1) +  
@@ -264,7 +260,7 @@ coeffs_2nd_half_actual <- lm(probability_of_draw ~ poly(bin_centers, 2), data = 
 predicted_probabilities <- predict(coeffs_2nd_half_actual, newdata = actual_probabilities_second)
 
 ggplot(second_half, aes(x = P_home_minus_P_away, y = P_draw)) +
-  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker olasılıkları
+  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker probabilities
   geom_line(aes(x = P_home_minus_P_away, y = predicted_draw), color = "red", size = 1) +  # Bookmaker Trend Line
   geom_point(data = actual_probabilities_second, aes(x = bin_centers, y = probability_of_draw), color = "green", size = 3) +  
   geom_line(data = actual_probabilities_second, aes(x = bin_centers, y = predicted_probabilities), color = "orange", size = 1) +  
@@ -470,7 +466,6 @@ After removing the matches fitting well to the cases (red card in the first 10 m
 Before starting the analysis, I looked at the correlations between the variables and those with a correlation of over 85% to get a general overview.We see a 1 or -1 correlation between some variables (such as Ball Possession % - home and Ball Possession % - away). Since such variables are directly related to each other, I decided not to give importance to this high difficulty in the analysis.
 
 ```{r}
-# Grup bazında forward fill uygulama (grup: fixture_id)
 library(dplyr)
 
 match_data_special <- match_data_special %>%
@@ -479,17 +474,14 @@ match_data_special <- match_data_special %>%
   tidyr::fill(everything(), .direction = "down") %>%
   ungroup()
 
-# NA'ları kontrol etme
-cat("NA sayısı:\n")
+cat("NA count:\n")
 print(colSums(is.na(match_data_special)))
 
-# NA'ları 0 ile doldururken, veri türlerine göre dikkatli bir şekilde doldur
 match_data_special <- match_data_special %>%
   mutate(across(where(is.numeric), ~replace(., is.na(.), 0)),  # Sayısal sütunlar için 0 ile doldurma
          across(where(is.character), ~replace(., is.na(.), "0")))  # Karakter sütunlar için "0" ile doldurma
 
-# NA'ları tekrar kontrol etme
-cat("NA sayısı (0 ile doldurulduktan sonra):\n")
+cat("NA count (after filling w/ 0):\n")
 print(colSums(is.na(match_data_special)))
 
 ```
