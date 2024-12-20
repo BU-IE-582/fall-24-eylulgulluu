@@ -1,0 +1,618 @@
+---
+title: "IE582 HW2 - Eylül Güllü"
+output: html_document
+date: "2024-12-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)  
+library(ggplot2)  
+library(dplyr)
+library(naniar)
+library(tidyr)
+
+file_path <- "/Users/eylulruyagullu/Desktop/match_data"
+match_data <- read_csv(file_path)
+
+match_data_2 <- match_data
+
+head(match_data)
+nrow(match_data)
+ncol(match_data)
+```
+
+```{r}
+summary(match_data)
+```
+
+```{r}
+for (col in colnames(match_data)) {
+    print(col)
+}
+```
+
+
+In order to analyze the number of minutes for each match, grouping was done in the code based on fixture_id. In the grouped data, the total minutes recorded for each match were calculated and the results were summarized under the minute_count variable. This summary table was then sorted by the number of minutes and arranged for a detailed analysis. In this way, the data for each match was made easier to compare based on minute records.
+```{r}
+match_data_summary <- match_data %>%
+  group_by(fixture_id) %>%
+  summarise(minute_count = n()) %>%
+  arrange(minute_count)
+
+print(match_data_summary)
+```
+The main purpose of this code is to clean the data by removing duplicate rows from the `match_data` dataset. First, it sorts the data based on the `fixture_id` and `current_time` columns, then removes duplicates that contain the same values. Finally, it calculates the number of deleted rows.
+```{r}
+match_data <- match_data[order(match_data$fixture_id, match_data$current_time), ]
+rownames(match_data) <- NULL
+
+before_removal <- nrow(match_data)
+
+match_data <- match_data[!duplicated(match_data[, c("fixture_id", "current_time")]), ]
+
+after_removal <- nrow(match_data)
+
+cat("Amount of deleted rows:", before_removal - after_removal, "\n")
+
+print(head(match_data))
+match_data
+```
+
+```{r}
+nrow(match_data)
+table(match_data$suspended)
+table(match_data$stopped)
+```
+
+
+The main purpose of this code is to clean the missing and erroneous data in the `match_data` dataset. First, the rows with `suspended` and `stopped` values as `False` are filtered. Then, the values in the critical columns are converted to appropriate numeric and date formats, and the erroneous data are marked as `NA`. Finally, the missing (`NA`) values in the critical columns are checked and these rows are removed from the dataset. After cleaning, the number of rows in the dataset is reported to the user.
+```{r}
+cat("Amount of rows before data cleaning:", nrow(match_data), "\n")
+match_data <- subset(match_data, suspended == FALSE & stopped == FALSE)
+cat("Amount of rows after data cleaning 1:", nrow(match_data), "\n")
+
+match_data$`1` <- suppressWarnings(as.numeric(match_data$`1`))
+match_data$X <- suppressWarnings(as.numeric(match_data$X))
+match_data$`2` <- suppressWarnings(as.numeric(match_data$`2`))
+
+match_data$current_time <- as.POSIXct(match_data$current_time, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+match_data$half_start_datetime <- as.POSIXct(match_data$half_start_datetime, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+match_data$latest_bookmaker_update <- as.POSIXct(match_data$latest_bookmaker_update, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+
+critical_columns <- c("current_time", "half_start_datetime", "1", "X", "2")
+match_data <- match_data[complete.cases(match_data[, critical_columns]), ]
+
+cat("Amount of rows after data cleaning 2:", nrow(match_data), "\n")
+print(head(match_data))
+```
+
+**TASK 1**
+*TASK 1.1 and TASK 1.2*
+```{r}
+match_data <- match_data %>%
+  mutate(
+    Total_odds = (1 / `1`) + (1 / `2`) + (1 / `X`),
+    P_home = (1 / `1`) / Total_odds,
+    P_away = (1 / `2`) / Total_odds,
+    P_draw = (1 / `X`) / Total_odds,
+    P_home_minus_P_away = P_home - P_away
+  )
+
+match_data <- match_data %>%
+  mutate(
+total_prob = P_home + P_draw + P_away,  
+      P_home_norm = (P_home / total_prob),
+      P_draw_norm = (P_draw / total_prob),
+      P_away_norm = (P_away / total_prob)
+    )
+
+first_half <- match_data %>% filter(halftime == "1st-half")
+second_half <- match_data %>% filter(halftime == "2nd-half")
+head(first_half)
+head(second_half)
+
+check_normalization_count <- function(data) {
+  normalized_total <- data$P_home_norm + data$P_draw_norm + data$P_away_norm
+  count_greater_than_one <- sum(normalized_total > 1.001)
+  return(count_greater_than_one)
+}
+
+first_half_issues_count <- check_normalization_count(first_half)
+second_half_issues_count <- check_normalization_count(second_half)
+
+```
+
+*TASK 1.3 - First Half*
+
+```{r}
+first_half <- first_half %>%
+  filter(!is.na(`1`) & !is.na(`2`))  
+
+
+ggplot(first_half, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  labs(title = "First Half - P(Home Win) - P(Away Win) vs P(Draw)",
+       x = "P(Home Win) - P(Away Win)",
+       y = "P(Draw)") +
+  theme_minimal()
+
+bins <- seq(-1, 1, by = 0.2)  
+
+binned_data <- first_half %>%
+  mutate(bin = cut(P_home_minus_P_away, breaks = bins, include.lowest = TRUE)) %>%
+  group_by(bin) %>%
+  summarise(
+    total_games = n(),                        
+    draws = sum(result == "X"),               
+    empirical_P_tie = draws / total_games,    
+    avg_bookmaker_P_tie = mean(P_draw, na.rm = TRUE)  
+  ) %>%
+  filter(!is.na(bin))  
+
+ggplot(binned_data, aes(x = bin)) +
+  geom_bar(aes(y = empirical_P_tie), stat = "identity", fill = "red", alpha = 0.6) +
+  geom_point(aes(y = avg_bookmaker_P_tie), color = "blue", size = 3) +
+  geom_line(aes(y = avg_bookmaker_P_tie, group = 1), color = "blue", linetype = "dashed") +
+  labs(title = "First Half - Empirical vs Bookmaker P(Draw) by Bins",
+       x = "P(Home Win) - P(Away Win) Bins",
+       y = "Probability of Draw") +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+num_bins <- 20
+
+coeffs_1st_half <- lm(P_draw ~ poly(P_home_minus_P_away, 2), data = first_half)
+first_half$predicted_draw <- predict(coeffs_1st_half, newdata = first_half)
+
+breaks <- seq(min(first_half$P_home_minus_P_away), max(first_half$P_home_minus_P_away), length.out = num_bins + 1)
+first_half$P_home_minus_P_away_bin <- cut(first_half$P_home_minus_P_away, breaks = breaks, include.lowest = TRUE)
+
+actual_probabilities_first <- first_half %>%
+  group_by(P_home_minus_P_away_bin) %>%
+  summarise(probability_of_draw = mean(result == "X", na.rm = TRUE))
+
+bin_centers <- breaks[-length(breaks)] + diff(breaks) / 2
+
+actual_probabilities_first <- actual_probabilities_first %>%
+  mutate(bin_center = bin_centers)
+
+coeffs_1st_half_actual <- lm(probability_of_draw ~ poly(bin_centers, 2), data = actual_probabilities_first)
+
+predicted_probabilities <- predict(coeffs_1st_half_actual, newdata = actual_probabilities_first)
+
+ggplot(first_half, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker olasılıkları
+  geom_line(aes(x = P_home_minus_P_away, y = predicted_draw), color = "red", size = 1) +  # Bookmaker Trend Line
+  geom_point(data = actual_probabilities_first, aes(x = bin_centers, y = probability_of_draw), color = "green", size = 3) +  
+  geom_line(data = actual_probabilities_first, aes(x = bin_centers, y = predicted_probabilities), color = "orange", size = 1) +  
+  labs(
+    title = "P(Home Win) - P(Away Win) vs P(Draw) (1st Half) with Actual Outcome Trend",
+    x = "P(Home Win) - P(Away Win)",
+    y = "P(Draw)"
+  ) +
+  theme_minimal()
+
+```
+
+*TASK 1.3 - Second Half*
+
+```{r}
+second_half <- second_half %>%
+  filter(!is.na(`1`) & !is.na(`2`))  
+
+ggplot(second_half, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  labs(title = "Second Half - P(Home Win) - P(Away Win) vs P(Draw)",
+       x = "P(Home Win) - P(Away Win)",
+       y = "P(Draw)") +
+  theme_minimal()
+
+bins <- seq(-1, 1, by = 0.2)  
+
+binned_data <- second_half %>%
+  mutate(bin = cut(P_home_minus_P_away, breaks = bins, include.lowest = TRUE)) %>%
+  group_by(bin) %>%
+  summarise(
+    total_games = n(),                        
+    draws = sum(result == "X"),               
+    empirical_P_tie = draws / total_games,    
+    avg_bookmaker_P_tie = mean(P_draw, na.rm = TRUE)  
+  ) %>%
+  filter(!is.na(bin))  
+
+ggplot(binned_data, aes(x = bin)) +
+  geom_bar(aes(y = empirical_P_tie), stat = "identity", fill = "red", alpha = 0.6) +
+  geom_point(aes(y = avg_bookmaker_P_tie), color = "blue", size = 3) +
+  geom_line(aes(y = avg_bookmaker_P_tie, group = 1), color = "blue", linetype = "dashed") +
+  labs(title = "Second Half - Empirical vs Bookmaker P(Draw) by Bins",
+       x = "P(Home Win) - P(Away Win) Bins",
+       y = "Probability of Draw") +
+  theme_minimal()
+```
+The blue dots on the graph are below or above the red bars, indicating that the predicted Draw probabilities (the values ​​provided by the bookmaker) are lower or higher than the observed Draw probabilities (empirical P(tie)). If the blue dots are above the red bars, the Draw probability given by the bookmaker tends to be lower than the actual data. In this case, betting on Draw can be profitable in the long run, because the bookmaker gives a lower probability, while the actual probability is higher. However, there are also cases where the blue dots are below the red bars. This indicates that the Draw probability given by the bookmaker is higher than the actual probability, and in such a case, betting on Draw may not be profitable in the long run. Such analyses provide an important tool for identifying opportunities in betting strategies. 
+The lower number of blue dots at the top in the second half suggests that the Draw odds were more consistent and predictable. This could mean that the bookmaker's predictions were more accurate in the second half and that the outcome of the match was less uncertain than in the first half. This consistency could have caused the blue dots to be less likely to be at the top of the red columns.
+
+
+```{r}
+num_bins <- 20
+
+coeffs_2nd_half <- lm(P_draw ~ poly(P_home_minus_P_away, 2), data = second_half)
+second_half$predicted_draw <- predict(coeffs_2nd_half, newdata = second_half)
+
+breaks <- seq(min(second_half$P_home_minus_P_away), max(second_half$P_home_minus_P_away), length.out = num_bins + 1)
+second_half$P_home_minus_P_away_bin <- cut(second_half$P_home_minus_P_away, breaks = breaks, include.lowest = TRUE)
+
+actual_probabilities_second <- second_half %>%
+  group_by(P_home_minus_P_away_bin) %>%
+  summarise(probability_of_draw = mean(result == "X", na.rm = TRUE))
+
+bin_centers <- breaks[-length(breaks)] + diff(breaks) / 2
+
+actual_probabilities_second <- actual_probabilities_second %>%
+  mutate(bin_center = bin_centers)
+
+coeffs_2nd_half_actual <- lm(probability_of_draw ~ poly(bin_centers, 2), data = actual_probabilities_second)
+
+predicted_probabilities <- predict(coeffs_2nd_half_actual, newdata = actual_probabilities_second)
+
+ggplot(second_half, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker olasılıkları
+  geom_line(aes(x = P_home_minus_P_away, y = predicted_draw), color = "red", size = 1) +  # Bookmaker Trend Line
+  geom_point(data = actual_probabilities_second, aes(x = bin_centers, y = probability_of_draw), color = "green", size = 3) +  
+  geom_line(data = actual_probabilities_second, aes(x = bin_centers, y = predicted_probabilities), color = "orange", size = 1) +  
+  labs(
+    title = "P(Home Win) - P(Away Win) vs P(Draw) (2nd Half) with Actual Outcome Trend",
+    x = "P(Home Win) - P(Away Win)",
+    y = "P(Draw)"
+  ) +
+  theme_minimal()
+```
+
+
+
+**TASK 2**
+The code filters out matches that scored after the 90th minute and received a red card before the 10th minute. First, it looks at the differences in the number of goals before and after the 90th minute and identifies matches that show these differences. It then also excludes matches that resulted in early red cards and removes these matches from the match_data_special data frame. As a result, matches that meet certain criteria are removed from the data set and the number of excluded matches is calculated.
+```{r}
+#After 90th minute goals elimination
+events_after_90 <- match_data %>%
+  filter(minute > 90)
+
+goals_before_90 <- match_data %>%
+  filter(minute <= 90) %>%
+  select(fixture_id, `Goals - home`, `Goals - away`) %>%
+  distinct()
+
+goals_after_90 <- events_after_90 %>%
+  select(fixture_id, `Goals - home`, `Goals - away`) %>%
+  distinct()
+
+matches_with_diff_goals <- goals_after_90 %>%
+  inner_join(goals_before_90, by = "fixture_id", suffix = c("_after_90", "_before_90")) %>%
+  filter(`Goals - away_after_90` != `Goals - away_before_90` | 
+         `Goals - home_after_90` != `Goals - home_before_90`) %>%
+  pull(fixture_id) %>%
+  unique()
+
+#Early red card matches elimination
+early_red_card_matches <- match_data %>%
+  filter(minute < 10, (`Redcards - home` > 0 | `Redcards - away` > 0)) %>%
+  pull(fixture_id) %>%
+  unique()
+
+exclude_matches <- union(matches_with_diff_goals, early_red_card_matches)
+
+match_data_special <- match_data %>%
+  filter(!fixture_id %in% exclude_matches)
+
+removed_matches <- nrow(match_data) - nrow(match_data_special)
+
+cat("Amount of deleted rows: ", removed_matches, "\n")
+
+match_data_special
+```
+
+
+```{r}
+first_half_special <- match_data_special %>% filter(halftime == "1st-half")
+second_half_special <- match_data_special %>% filter(halftime == "2nd-half")
+head(first_half_special)
+head(second_half_special)
+```
+
+
+*After specialization, 1st half*
+```{r}
+ggplot(first_half_special, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  labs(title = "First Half - P(Home Win) - P(Away Win) vs P(Draw)",
+       x = "P(Home Win) - P(Away Win)",
+       y = "P(Draw)") +
+  theme_minimal()
+
+bins <- seq(-1, 1, by = 0.2)  
+
+binned_data <- first_half_special %>%
+  mutate(bin = cut(P_home_minus_P_away, breaks = bins, include.lowest = TRUE)) %>%
+  group_by(bin) %>%
+  summarise(
+    total_games = n(),                        
+    draws = sum(result == "X"),               
+    empirical_P_tie = draws / total_games,    
+    avg_bookmaker_P_tie = mean(P_draw, na.rm = TRUE)  
+  ) %>%
+  filter(!is.na(bin))  
+
+ggplot(binned_data, aes(x = bin)) +
+  geom_bar(aes(y = empirical_P_tie), stat = "identity", fill = "red", alpha = 0.6) +
+  geom_point(aes(y = avg_bookmaker_P_tie), color = "blue", size = 3) +
+  geom_line(aes(y = avg_bookmaker_P_tie, group = 1), color = "blue", linetype = "dashed") +
+  labs(title = "First Half - Empirical vs Bookmaker P(Draw) by Bins",
+       x = "P(Home Win) - P(Away Win) Bins",
+       y = "Probability of Draw") +
+  theme_minimal()
+```
+```{r}
+num_bins <- 20
+
+coeffs_1st_half <- lm(P_draw ~ poly(P_home_minus_P_away, 2), data = first_half_special)
+first_half_special$predicted_draw <- predict(coeffs_1st_half, newdata = first_half_special)
+
+breaks <- seq(min(first_half_special$P_home_minus_P_away), max(first_half_special$P_home_minus_P_away), length.out = num_bins + 1)
+first_half_special$P_home_minus_P_away_bin <- cut(first_half_special$P_home_minus_P_away, breaks = breaks, include.lowest = TRUE)
+
+actual_probabilities_first <- first_half_special %>%
+  group_by(P_home_minus_P_away_bin) %>%
+  summarise(probability_of_draw = mean(result == "X", na.rm = TRUE))
+
+bin_centers <- breaks[-length(breaks)] + diff(breaks) / 2
+
+actual_probabilities_first <- actual_probabilities_first %>%
+  mutate(bin_center = bin_centers)
+
+coeffs_1st_half_actual <- lm(probability_of_draw ~ poly(bin_centers, 2), data = actual_probabilities_first)
+
+predicted_probabilities <- predict(coeffs_1st_half_actual, newdata = actual_probabilities_first)
+
+ggplot(first_half_special, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker olasılıkları
+  geom_line(aes(x = P_home_minus_P_away, y = predicted_draw), color = "red", size = 1) +  # Bookmaker Trend Line
+  geom_point(data = actual_probabilities_first, aes(x = bin_centers, y = probability_of_draw), color = "green", size = 3) +  
+  geom_line(data = actual_probabilities_first, aes(x = bin_centers, y = predicted_probabilities), color = "orange", size = 1) +  
+  labs(
+    title = "P(Home Win) - P(Away Win) vs P(Draw) (1st Half) with Actual Outcome Trend",
+    x = "P(Home Win) - P(Away Win)",
+    y = "P(Draw)"
+  ) +
+  theme_minimal()
+
+```
+After removing the matches fitting well to the cases (red card in the first 10 minutes of a game and one of the teams score a goal after 90th minute), we see that there is a better fit in the model.
+
+
+*After specialization, 2nd half*
+```{r}
+ggplot(second_half_special, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  labs(title = "Second Half - P(Home Win) - P(Away Win) vs P(Draw)",
+       x = "P(Home Win) - P(Away Win)",
+       y = "P(Draw)") +
+  theme_minimal()
+
+bins <- seq(-1, 1, by = 0.2)  
+
+binned_data <- second_half_special %>%
+  mutate(bin = cut(P_home_minus_P_away, breaks = bins, include.lowest = TRUE)) %>%
+  group_by(bin) %>%
+  summarise(
+    total_games = n(),                        
+    draws = sum(result == "X"),               
+    empirical_P_tie = draws / total_games,    
+    avg_bookmaker_P_tie = mean(P_draw, na.rm = TRUE)  
+  ) %>%
+  filter(!is.na(bin))  
+
+ggplot(binned_data, aes(x = bin)) +
+  geom_bar(aes(y = empirical_P_tie), stat = "identity", fill = "red", alpha = 0.6) +
+  geom_point(aes(y = avg_bookmaker_P_tie), color = "blue", size = 3) +
+  geom_line(aes(y = avg_bookmaker_P_tie, group = 1), color = "blue", linetype = "dashed") +
+  labs(title = "Second Half - Empirical vs Bookmaker P(Draw) by Bins",
+       x = "P(Home Win) - P(Away Win) Bins",
+       y = "Probability of Draw") +
+  theme_minimal()
+```
+
+```{r}
+num_bins <- 20
+
+coeffs_2nd_half <- lm(P_draw ~ poly(P_home_minus_P_away, 2), data = second_half_special)
+second_half_special$predicted_draw <- predict(coeffs_2nd_half, newdata = second_half_special)
+
+breaks <- seq(min(second_half_special$P_home_minus_P_away), max(second_half_special$P_home_minus_P_away), length.out = num_bins + 1)
+second_half_special$P_home_minus_P_away_bin <- cut(second_half_special$P_home_minus_P_away, breaks = breaks, include.lowest = TRUE)
+
+actual_probabilities_second <- second_half_special %>%
+  group_by(P_home_minus_P_away_bin) %>%
+  summarise(probability_of_draw = mean(result == "X", na.rm = TRUE))
+
+bin_centers <- breaks[-length(breaks)] + diff(breaks) / 2
+
+actual_probabilities_second <- actual_probabilities_second %>%
+  mutate(bin_center = bin_centers)
+
+coeffs_2nd_half_actual <- lm(probability_of_draw ~ poly(bin_centers, 2), data = actual_probabilities_second)
+
+predicted_probabilities <- predict(coeffs_2nd_half_actual, newdata = actual_probabilities_second)
+
+ggplot(second_half_special, aes(x = P_home_minus_P_away, y = P_draw)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Bookmaker olasılıkları
+  geom_line(aes(x = P_home_minus_P_away, y = predicted_draw), color = "red", size = 1) +  # Bookmaker Trend Line
+  geom_point(data = actual_probabilities_second, aes(x = bin_centers, y = probability_of_draw), color = "green", size = 3) +  
+  geom_line(data = actual_probabilities_second, aes(x = bin_centers, y = predicted_probabilities), color = "orange", size = 1) +  
+  labs(
+    title = "(2nd Half) | P(Home Win) - P(Away Win) vs P(Draw) with Actual Outcome Trend",
+    x = "P(Home Win) - P(Away Win)",
+    y = "P(Draw)"
+  ) +
+  theme_minimal()
+
+```
+After removing the matches fitting well to the cases (red card in the first 10 minutes of a game and one of the teams score a goal after 90th minute), we see that there is a better fit in the model.
+
+**TASK 3**
+Before starting the analysis, I looked at the correlations between the variables and those with a correlation of over 85% to get a general overview.We see a 1 or -1 correlation between some variables (such as Ball Possession % - home and Ball Possession % - away). Since such variables are directly related to each other, I decided not to give importance to this high difficulty in the analysis.
+
+```{r}
+# Grup bazında forward fill uygulama (grup: fixture_id)
+library(dplyr)
+
+match_data_special <- match_data_special %>%
+  group_by(fixture_id) %>%
+  arrange(fixture_id) %>%
+  tidyr::fill(everything(), .direction = "down") %>%
+  ungroup()
+
+# NA'ları kontrol etme
+cat("NA sayısı:\n")
+print(colSums(is.na(match_data_special)))
+
+# NA'ları 0 ile doldururken, veri türlerine göre dikkatli bir şekilde doldur
+match_data_special <- match_data_special %>%
+  mutate(across(where(is.numeric), ~replace(., is.na(.), 0)),  # Sayısal sütunlar için 0 ile doldurma
+         across(where(is.character), ~replace(., is.na(.), "0")))  # Karakter sütunlar için "0" ile doldurma
+
+# NA'ları tekrar kontrol etme
+cat("NA sayısı (0 ile doldurulduktan sonra):\n")
+print(colSums(is.na(match_data_special)))
+
+```
+
+
+```{r}
+numeric_data <- first_half_special %>% select_if(is.numeric)
+
+correlation_matrix <- cor(numeric_data, use = "complete.obs")
+
+correlation_long <- as.data.frame(as.table(correlation_matrix))
+
+correlation_long <- correlation_long[correlation_long$Var1 != correlation_long$Var2, ]
+
+correlation_long <- correlation_long[!is.na(correlation_long$Freq), ]
+
+correlation_long <- correlation_long[abs(correlation_long$Freq) > 0.85, ]
+
+correlation_long
+```
+
+```{r}
+match_data_special
+```
+
+
+```{r}
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ggplot2)
+
+numerical_columns <- match_data_special %>%
+  select(where(is.numeric)) %>%
+  colnames()
+
+first_half_data <- match_data_special %>% filter(halftime == "1st-half")
+second_half_data <- match_data_special %>% filter(halftime == "2nd-half")
+
+train_decision_tree <- function(data, tree_columns, target, maxdepth = 12, minsplit = 4, cp = 0.004) {
+  X <- data %>% select(all_of(tree_columns))
+  y <- data[[target]]
+  
+  set.seed(42)
+  train_indices <- createDataPartition(y, p = 0.8, list = FALSE)
+  X_train <- X[train_indices, ]
+  X_test <- X[-train_indices, ]
+  y_train <- y[train_indices]
+  y_test <- y[-train_indices]
+  
+  decision_tree <- rpart(y_train ~ ., 
+                         data = X_train, 
+                         method = "class", 
+                         control = rpart.control(maxdepth = maxdepth, 
+                                                 minsplit = minsplit, 
+                                                 cp = cp))
+  
+  predictions <- predict(decision_tree, newdata = X_test, type = "class")
+  confusion_matrix <- table(Predicted = predictions, Actual = y_test)
+  accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+  
+  feature_importances <- decision_tree$variable.importance
+  
+  list(
+    model = decision_tree,
+    accuracy = accuracy,
+    confusion_matrix = confusion_matrix,
+    feature_importances = feature_importances
+  )
+}
+
+tree_columns <- setdiff(numerical_columns, c("P_home", "P_away", "P_draw", 
+                                             "P_home_norm", "P_away_norm", 
+                                             "P_draw_norm", "name", "Total_odds", 
+                                             "final_score", "P_home_minus_P_away", 
+                                             "total_prob", "fixture_id", "halftime", "Assists - home", "Assists - away", "second", "Ball Possession % - away", "Substitutions - home"))
+
+first_half_result <- train_decision_tree(first_half_data, tree_columns, "result")
+print("First Half Accuracy:")
+print(round(first_half_result$accuracy, 2))
+print("First Half Confusion Matrix:")
+print(first_half_result$confusion_matrix)
+
+cat("Feature Importance (First Half):\n")
+importance_df_first_half <- data.frame(
+  Feature = names(first_half_result$feature_importances),
+  Importance = first_half_result$feature_importances
+)
+importance_df_first_half <- importance_df_first_half[order(-importance_df_first_half$Importance), ]
+print(importance_df_first_half)
+
+print("Decision Tree Details (First Half):")
+printcp(first_half_result$model)  # Hangi parametrelere göre kırıldığını gösterir
+summary(first_half_result$model)  # Karar ağacının detaylı yapısını yazdırır
+
+rpart.plot(first_half_result$model, main = "First Half Decision Tree", type = 3, extra = 104)
+
+second_half_result <- train_decision_tree(second_half_data, tree_columns, "result")
+print("Second Half Accuracy:")
+print(round(second_half_result$accuracy, 2))
+print("Second Half Confusion Matrix:")
+print(second_half_result$confusion_matrix)
+
+cat("Feature Importance (Second Half):\n")
+importance_df_second_half <- data.frame(
+  Feature = names(second_half_result$feature_importances),
+  Importance = second_half_result$feature_importances
+)
+importance_df_second_half <- importance_df_second_half[order(-importance_df_second_half$Importance), ]
+print(importance_df_second_half)
+
+print("Decision Tree Details (Second Half):")
+printcp(second_half_result$model)
+summary(second_half_result$model)
+
+rpart.plot(second_half_result$model, main = "Second Half Decision Tree", type = 3, extra = 104)
+
+print("First Half Accuracy:")
+print(round(first_half_result$accuracy, 2))
+print("Second Half Accuracy:")
+print(round(second_half_result$accuracy, 2))
+```
+As we can see from the results, 1,2 and X are the most importans features for the match result prediction. We eliminated some features w/ high correlation during our analysis. Also eliminating extraordinary events helped us to have higher accuracy levels. 
+Additionally, our second half accuracy is reasonable higher (0.74) than our first half accuracy (0.62). Possible reasons for the higher accuracy in the second half than the first half could be that the second half is generally more dynamic and predictable, team strategies become more apparent, and the tempo of the match increases. Additionally, irregularities in the dataset and some features becoming more significant in the second half may have helped the model make more accurate predictions. Changes in teams’ playing style and strategies may also affect this difference.
+
