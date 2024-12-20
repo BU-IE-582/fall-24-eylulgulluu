@@ -18,3 +18,4 @@ Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://j
 1. [Report Rmd](Files/IE582_HW2.Rmd)
 2. [Report HTML](Files/IE582_HW2.html)
 
+
