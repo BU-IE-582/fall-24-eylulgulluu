@@ -20,3 +20,4 @@ Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://j
 
 ## PROJECT
 1. [Codes ipynb](Project/582_code_v4.ipynb)
+2. [Project Report](Project/IE582_ProjectReport_final.html)
