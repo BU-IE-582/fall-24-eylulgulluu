@@ -19,4 +19,4 @@ Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://j
 2. [Report HTML](Files/IE582_HW2.html)
 
 ## PROJECT
-1. [Codes ipynb](Files/582_code_v4.ipynb)
+1. [Codes ipynb](Project/582_code_v4.ipynb)
