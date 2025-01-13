@@ -19,5 +19,6 @@ Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://j
 2. [Report HTML](Files/IE582_HW2.html)
 
 ## PROJECT
-1. [Codes ipynb](Project/582_code_v4.ipynb)
-2. [Project Report](Project/IE582_ProjectReport_final.html)
+1. [Project Code Github](https://github.com/BU-IE-582/fall-24-eylulgulluu/blob/main/Project/582_code_v4.ipynb)
+2. [To Download Project Codes](Project/582_code_v4.ipynb)
+3. [Project Report](Project/IE582_ProjectReport_final.html)
